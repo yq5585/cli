@@ -14,6 +14,7 @@ import (
 	"github.com/docker/cli/cli/command/formatter"
 	flagsHelper "github.com/docker/cli/cli/flags"
 	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/events"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/pkg/errors"
@@ -38,7 +39,7 @@ func NewStatsCommand(dockerCli command.Cli) *cobra.Command {
 		Args:  cli.RequiresMinArgs(0),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts.containers = args
-			return runStats(dockerCli, &opts)
+			return runStats(cmd.Context(), dockerCli, &opts)
 		},
 		Annotations: map[string]string{
 			"aliases": "docker container stats, docker stats",
@@ -58,11 +59,9 @@ func NewStatsCommand(dockerCli command.Cli) *cobra.Command {
 // This shows real-time information on CPU usage, memory usage, and network I/O.
 //
 //nolint:gocyclo
-func runStats(dockerCli command.Cli, opts *statsOptions) error {
+func runStats(ctx context.Context, dockerCli command.Cli, opts *statsOptions) error {
 	showAll := len(opts.containers) == 0
 	closeChan := make(chan error)
-
-	ctx := context.Background()
 
 	// monitorContainerEvents watches for container creation and removal (only
 	// used when calling `docker stats` without arguments).
@@ -95,8 +94,7 @@ func runStats(dockerCli command.Cli, opts *statsOptions) error {
 
 	// Get the daemonOSType if not set already
 	if daemonOSType == "" {
-		svctx := context.Background()
-		sv, err := dockerCli.Client().ServerVersion(svctx)
+		sv, err := dockerCli.Client().ServerVersion(ctx)
 		if err != nil {
 			return err
 		}
@@ -110,15 +108,15 @@ func runStats(dockerCli command.Cli, opts *statsOptions) error {
 	// getContainerList simulates creation event for all previously existing
 	// containers (only used when calling `docker stats` without arguments).
 	getContainerList := func() {
-		options := types.ContainerListOptions{
+		options := container.ListOptions{
 			All: opts.all,
 		}
 		cs, err := dockerCli.Client().ContainerList(ctx, options)
 		if err != nil {
 			closeChan <- err
 		}
-		for _, container := range cs {
-			s := NewStats(container.ID[:12])
+		for _, ctr := range cs {
+			s := NewStats(ctr.ID[:12])
 			if cStats.add(s) {
 				waitFirst.Add(1)
 				go collect(ctx, s, dockerCli.Client(), !opts.noStream, waitFirst)
@@ -135,7 +133,7 @@ func runStats(dockerCli command.Cli, opts *statsOptions) error {
 		eh := command.InitEventHandler()
 		eh.Handle(events.ActionCreate, func(e events.Message) {
 			if opts.all {
-				s := NewStats(e.ID[:12])
+				s := NewStats(e.Actor.ID[:12])
 				if cStats.add(s) {
 					waitFirst.Add(1)
 					go collect(ctx, s, dockerCli.Client(), !opts.noStream, waitFirst)
@@ -144,7 +142,7 @@ func runStats(dockerCli command.Cli, opts *statsOptions) error {
 		})
 
 		eh.Handle(events.ActionStart, func(e events.Message) {
-			s := NewStats(e.ID[:12])
+			s := NewStats(e.Actor.ID[:12])
 			if cStats.add(s) {
 				waitFirst.Add(1)
 				go collect(ctx, s, dockerCli.Client(), !opts.noStream, waitFirst)
@@ -153,7 +151,7 @@ func runStats(dockerCli command.Cli, opts *statsOptions) error {
 
 		eh.Handle(events.ActionDie, func(e events.Message) {
 			if !opts.all {
-				cStats.remove(e.ID[:12])
+				cStats.remove(e.Actor.ID[:12])
 			}
 		})
 

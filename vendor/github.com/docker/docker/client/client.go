@@ -19,7 +19,7 @@ For example, to list running containers (the equivalent of "docker ps"):
 		"context"
 		"fmt"
 
-		"github.com/docker/docker/api/types"
+		"github.com/docker/docker/api/types/container"
 		"github.com/docker/docker/client"
 	)
 
@@ -29,13 +29,13 @@ For example, to list running containers (the equivalent of "docker ps"):
 			panic(err)
 		}
 
-		containers, err := cli.ContainerList(context.Background(), types.ContainerListOptions{})
+		containers, err := cli.ContainerList(context.Background(), container.ListOptions{})
 		if err != nil {
 			panic(err)
 		}
 
-		for _, container := range containers {
-			fmt.Printf("%s %s\n", container.ID[:10], container.Image)
+		for _, ctr := range containers {
+			fmt.Printf("%s %s\n", ctr.ID, ctr.Image)
 		}
 	}
 */
@@ -89,6 +89,13 @@ import (
 // [RFC 7230, Section 5.4]: https://datatracker.ietf.org/doc/html/rfc7230#section-5.4
 // [Go stdlib]: https://github.com/golang/go/blob/6244b1946bc2101b01955468f1be502dbadd6807/src/net/http/transport.go#L558-L569
 const DummyHost = "api.moby.localhost"
+
+// fallbackAPIVersion is the version to fallback to if API-version negotiation
+// fails. This version is the highest version of the API before API-version
+// negotiation was introduced. If negotiation fails (or no API version was
+// included in the API response), we assume the API server uses the most
+// recent version before negotiation was introduced.
+const fallbackAPIVersion = "1.24"
 
 // Client is the API client that performs all operations
 // against a docker server.
@@ -329,7 +336,7 @@ func (cli *Client) NegotiateAPIVersionPing(pingResponse types.Ping) {
 func (cli *Client) negotiateAPIVersionPing(pingResponse types.Ping) {
 	// default to the latest version before versioning headers existed
 	if pingResponse.APIVersion == "" {
-		pingResponse.APIVersion = "1.24"
+		pingResponse.APIVersion = fallbackAPIVersion
 	}
 
 	// if the client is not initialized with a version, start with the latest supported version

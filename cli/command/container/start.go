@@ -10,6 +10,7 @@ import (
 	"github.com/docker/cli/cli/command"
 	"github.com/docker/cli/cli/command/completion"
 	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/container"
 	"github.com/moby/sys/signal"
 	"github.com/moby/term"
 	"github.com/pkg/errors"
@@ -44,7 +45,7 @@ func NewStartCommand(dockerCli command.Cli) *cobra.Command {
 		Args:  cli.RequiresMinArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts.Containers = args
-			return RunStart(dockerCli, &opts)
+			return RunStart(cmd.Context(), dockerCli, &opts)
 		},
 		Annotations: map[string]string{
 			"aliases": "docker container start, docker start",
@@ -71,11 +72,12 @@ func NewStartCommand(dockerCli command.Cli) *cobra.Command {
 // RunStart executes a `start` command
 //
 //nolint:gocyclo
-func RunStart(dockerCli command.Cli, opts *StartOptions) error {
-	ctx, cancelFun := context.WithCancel(context.Background())
+func RunStart(ctx context.Context, dockerCli command.Cli, opts *StartOptions) error {
+	ctx, cancelFun := context.WithCancel(ctx)
 	defer cancelFun()
 
-	if opts.Attach || opts.OpenStdin {
+	switch {
+	case opts.Attach || opts.OpenStdin:
 		// We're going to attach to a container.
 		// 1. Ensure we only have one container.
 		if len(opts.Containers) > 1 {
@@ -83,8 +85,8 @@ func RunStart(dockerCli command.Cli, opts *StartOptions) error {
 		}
 
 		// 2. Attach to the container.
-		container := opts.Containers[0]
-		c, err := dockerCli.Client().ContainerInspect(ctx, container)
+		ctr := opts.Containers[0]
+		c, err := dockerCli.Client().ContainerInspect(ctx, ctr)
 		if err != nil {
 			return err
 		}
@@ -92,7 +94,7 @@ func RunStart(dockerCli command.Cli, opts *StartOptions) error {
 		// We always use c.ID instead of container to maintain consistency during `docker start`
 		if !c.Config.Tty {
 			sigc := notifyAllSignals()
-			go ForwardAllSignals(ctx, dockerCli, c.ID, sigc)
+			go ForwardAllSignals(ctx, dockerCli.Client(), c.ID, sigc)
 			defer signal.StopCatch(sigc)
 		}
 
@@ -101,7 +103,7 @@ func RunStart(dockerCli command.Cli, opts *StartOptions) error {
 			detachKeys = opts.DetachKeys
 		}
 
-		options := types.ContainerAttachOptions{
+		options := container.AttachOptions{
 			Stream:     true,
 			Stdin:      opts.OpenStdin && c.Config.OpenStdin,
 			Stdout:     true,
@@ -148,7 +150,7 @@ func RunStart(dockerCli command.Cli, opts *StartOptions) error {
 		statusChan := waitExitOrRemoved(ctx, dockerCli.Client(), c.ID, c.HostConfig.AutoRemove)
 
 		// 4. Start the container.
-		err = dockerCli.Client().ContainerStart(ctx, c.ID, types.ContainerStartOptions{
+		err = dockerCli.Client().ContainerStart(ctx, c.ID, container.StartOptions{
 			CheckpointID:  opts.Checkpoint,
 			CheckpointDir: opts.CheckpointDir,
 		})
@@ -179,35 +181,32 @@ func RunStart(dockerCli command.Cli, opts *StartOptions) error {
 		if status := <-statusChan; status != 0 {
 			return cli.StatusError{StatusCode: status}
 		}
-	} else if opts.Checkpoint != "" {
+		return nil
+	case opts.Checkpoint != "":
 		if len(opts.Containers) > 1 {
 			return errors.New("you cannot restore multiple containers at once")
 		}
-		container := opts.Containers[0]
-		startOptions := types.ContainerStartOptions{
+		ctr := opts.Containers[0]
+		return dockerCli.Client().ContainerStart(ctx, ctr, container.StartOptions{
 			CheckpointID:  opts.Checkpoint,
 			CheckpointDir: opts.CheckpointDir,
-		}
-		return dockerCli.Client().ContainerStart(ctx, container, startOptions)
-
-	} else {
+		})
+	default:
 		// We're not going to attach to anything.
 		// Start as many containers as we want.
 		return startContainersWithoutAttachments(ctx, dockerCli, opts.Containers)
 	}
-
-	return nil
 }
 
 func startContainersWithoutAttachments(ctx context.Context, dockerCli command.Cli, containers []string) error {
 	var failedContainers []string
-	for _, container := range containers {
-		if err := dockerCli.Client().ContainerStart(ctx, container, types.ContainerStartOptions{}); err != nil {
+	for _, ctr := range containers {
+		if err := dockerCli.Client().ContainerStart(ctx, ctr, container.StartOptions{}); err != nil {
 			fmt.Fprintln(dockerCli.Err(), err)
-			failedContainers = append(failedContainers, container)
+			failedContainers = append(failedContainers, ctr)
 			continue
 		}
-		fmt.Fprintln(dockerCli.Out(), container)
+		fmt.Fprintln(dockerCli.Out(), ctr)
 	}
 
 	if len(failedContainers) > 0 {

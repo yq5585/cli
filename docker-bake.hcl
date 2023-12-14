@@ -1,5 +1,5 @@
 variable "GO_VERSION" {
-    default = "1.20.8"
+    default = "1.21.5"
 }
 variable "VERSION" {
     default = ""
@@ -52,7 +52,7 @@ target "binary" {
     platforms = ["local"]
     output = ["build"]
     args = {
-        BASE_VARIANT = USE_GLIBC == "1" ? "bullseye" : "alpine"
+        BASE_VARIANT = USE_GLIBC == "1" ? "debian" : "alpine"
         VERSION = VERSION
         PACKAGER_NAME = PACKAGER_NAME
         GO_STRIP = STRIP_TARGET
@@ -72,7 +72,7 @@ target "plugins" {
     platforms = ["local"]
     output = ["build"]
     args = {
-        BASE_VARIANT = USE_GLIBC == "1" ? "bullseye" : "alpine"
+        BASE_VARIANT = USE_GLIBC == "1" ? "debian" : "alpine"
         VERSION = VERSION
         GO_STRIP = STRIP_TARGET
     }
@@ -155,7 +155,7 @@ target "e2e-image" {
     output = ["type=docker"]
     tags = ["${IMAGE_NAME}"]
     args = {
-        BASE_VARIANT = USE_GLIBC == "1" ? "bullseye" : "alpine"
+        BASE_VARIANT = USE_GLIBC == "1" ? "debian" : "alpine"
         VERSION = VERSION
     }
 }

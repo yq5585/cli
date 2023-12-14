@@ -3,7 +3,7 @@ package service
 import (
 	"context"
 
-	. "github.com/docker/cli/internal/test/builders" // Import builders to get the builder function as package function
+	"github.com/docker/cli/internal/test/builders"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/swarm"
 	"github.com/docker/docker/api/types/system"
@@ -13,7 +13,7 @@ import (
 type fakeClient struct {
 	client.Client
 	serviceInspectWithRawFunc func(ctx context.Context, serviceID string, options types.ServiceInspectOptions) (swarm.Service, []byte, error)
-	serviceUpdateFunc         func(ctx context.Context, serviceID string, version swarm.Version, service swarm.ServiceSpec, options types.ServiceUpdateOptions) (types.ServiceUpdateResponse, error)
+	serviceUpdateFunc         func(ctx context.Context, serviceID string, version swarm.Version, service swarm.ServiceSpec, options types.ServiceUpdateOptions) (swarm.ServiceUpdateResponse, error)
 	serviceListFunc           func(context.Context, types.ServiceListOptions) ([]swarm.Service, error)
 	taskListFunc              func(context.Context, types.TaskListOptions) ([]swarm.Task, error)
 	infoFunc                  func(ctx context.Context) (system.Info, error)
@@ -40,7 +40,7 @@ func (f *fakeClient) ServiceInspectWithRaw(ctx context.Context, serviceID string
 		return f.serviceInspectWithRawFunc(ctx, serviceID, options)
 	}
 
-	return *Service(ServiceID(serviceID)), []byte{}, nil
+	return *builders.Service(builders.ServiceID(serviceID)), []byte{}, nil
 }
 
 func (f *fakeClient) ServiceList(ctx context.Context, options types.ServiceListOptions) ([]swarm.Service, error) {
@@ -51,12 +51,12 @@ func (f *fakeClient) ServiceList(ctx context.Context, options types.ServiceListO
 	return nil, nil
 }
 
-func (f *fakeClient) ServiceUpdate(ctx context.Context, serviceID string, version swarm.Version, service swarm.ServiceSpec, options types.ServiceUpdateOptions) (types.ServiceUpdateResponse, error) {
+func (f *fakeClient) ServiceUpdate(ctx context.Context, serviceID string, version swarm.Version, service swarm.ServiceSpec, options types.ServiceUpdateOptions) (swarm.ServiceUpdateResponse, error) {
 	if f.serviceUpdateFunc != nil {
 		return f.serviceUpdateFunc(ctx, serviceID, version, service, options)
 	}
 
-	return types.ServiceUpdateResponse{}, nil
+	return swarm.ServiceUpdateResponse{}, nil
 }
 
 func (f *fakeClient) Info(ctx context.Context) (system.Info, error) {
@@ -74,5 +74,5 @@ func (f *fakeClient) NetworkInspect(ctx context.Context, networkID string, optio
 }
 
 func newService(id string, name string) swarm.Service {
-	return *Service(ServiceID(id), ServiceName(name))
+	return *builders.Service(builders.ServiceID(id), builders.ServiceName(name))
 }
